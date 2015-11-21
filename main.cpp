@@ -117,6 +117,7 @@ htmli::Html DisplayRules(RulesMatcher& rm) {
 }
 
 std::string MakePage(const std::string& content) {
+    using namespace httpi::html;
     return (httpi::html::Html() <<
         "<!DOCTYPE html>"
         "<html>"
@@ -134,7 +135,17 @@ std::string MakePage(const std::string& content) {
                         content <<
                     "</div>"
                     "<div class=\"col-md-3\">" <<
-                        "JOBS"
+                        Ul() <<
+                            Li() <<
+                                A().Attr("href", "/model") << "Model" << Close() <<
+                            Close() <<
+                            Li() <<
+                                A().Attr("href", "/rules") << "Rules" << Close() <<
+                            Close() <<
+                            Li() <<
+                                A().Attr("href", "/match") << "try it" << Close() <<
+                            Close() <<
+                        Close() <<
                     "</div>"
                 "</div>"
             "</body>"

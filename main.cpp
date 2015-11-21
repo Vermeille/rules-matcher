@@ -17,7 +17,6 @@
 
 static const unsigned int kNotFound = -1;
 
-RulesMatcher g_rm;
 
 namespace htmli = httpi::html;
 
@@ -30,7 +29,7 @@ static const htmli::FormDescriptor match_form_desc = {
 static const std::string match_form = match_form_desc
         .MakeForm("/match", "GET").Get();
 
-htmli::Html SeeMatches(const std::string& text) {
+htmli::Html SeeMatches(RulesMatcher& rm, const std::string& text) {
     using namespace htmli;
 
     std::istringstream input(text);
@@ -42,7 +41,7 @@ htmli::Html SeeMatches(const std::string& text) {
         ex.inputs.push_back({w});
         input >> w;
     }
-    auto matches = g_rm.Match(ex);
+    auto matches = rm.Match(ex);
 
     Html html;
     if (matches.size() == 0) {
@@ -67,8 +66,8 @@ static const htmli::FormDescriptor load_form_desc = {
 static const std::string load_form = load_form_desc
         .MakeForm("/model", "PUT").Get();
 
-htmli::Html CreateMatcher(const std::string& matcher) {
-    g_rm = RulesMatcher::FromSerialized(matcher);
+RulesMatcher CreateMatcher(const std::string& matcher) {
+    return RulesMatcher::FromSerialized(matcher);
 }
 
 static const htmli::FormDescriptor add_form_desc = {
@@ -81,10 +80,10 @@ static const htmli::FormDescriptor add_form_desc = {
 static const std::string add_form = add_form_desc
         .MakeForm("/rules", "POST").Get();
 
-htmli::Html Save() {
+htmli::Html Save(RulesMatcher& rm) {
     using namespace htmli;
     return Html() << A().Id("dl").Attr("download", "bow_model.bin") << "Download Model" << Close() <<
-        Tag("textarea").Id("content").Attr("style", "display: none") << g_rm.Serialize() << Close() <<
+        Tag("textarea").Id("content").Attr("style", "display: none") << rm.Serialize() << Close() <<
         Tag("script") <<
             "window.onload = function() {"
                 "var txt = document.getElementById('dl');"
@@ -94,7 +93,7 @@ htmli::Html Save() {
         Close();
 }
 
-htmli::Html DisplayRules() {
+htmli::Html DisplayRules(RulesMatcher& rm) {
     using namespace htmli;
     Html html;
     html << H2() << "Rules" << Close();
@@ -106,7 +105,7 @@ htmli::Html DisplayRules() {
             Th() << "Pattern" << Close() <<
         Close();
 
-    for (auto& r : g_rm) {
+    for (auto& r : rm) {
         html <<
         Tr() <<
             Td() << r.key() << Close() <<
@@ -145,6 +144,7 @@ std::string MakePage(const std::string& content) {
 int main(int argc, char** argv) {
     InitHttpInterface();  // Init the http server
 
+    RulesMatcher rules_matcher;
     WebJobsPool jp;
     auto t1 = jp.StartJob(std::unique_ptr<MonitoringJob>(new MonitoringJob()));
     auto monitoring_job = jp.GetId(t1);
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
         });
 
     RegisterUrl("/match",
-            [](const std::string& method, const POSTValues& args) {
+            [&rules_matcher](const std::string& method, const POSTValues& args) {
                 using namespace httpi::html;
                 Html html;
 
@@ -162,34 +162,35 @@ int main(int argc, char** argv) {
                 if (std::get<0>(vargs)) {
                     html << P().AddClass("alert") << "No input" << Close();
                 } else {
-                    html << SeeMatches(std::get<2>(vargs)[0]);
+                    html << SeeMatches(rules_matcher, std::get<2>(vargs)[0]);
                 }
                 html << match_form;
                 return MakePage(html.Get());
             });
 
-    RegisterUrl("/model", [](const std::string& method, const POSTValues& args) {
-            using namespace httpi::html;
-            Html html;
-            if (method == "GET") {
-                html << Save();
-            } else if (method == "PUT") {
-                auto vargs = load_form_desc.ValidateParams(args);
-                if (std::get<0>(vargs)) {
-                    html << (std::get<1>(vargs).Get());
+    RegisterUrl("/model",
+            [&rules_matcher](const std::string& method, const POSTValues& args) {
+                using namespace httpi::html;
+                Html html;
+                if (method == "GET") {
+                    html << Save(rules_matcher);
+                } else if (method == "PUT") {
+                    auto vargs = load_form_desc.ValidateParams(args);
+                    if (std::get<0>(vargs)) {
+                        html << (std::get<1>(vargs).Get());
+                    } else {
+                        rules_matcher = CreateMatcher(std::get<2>(vargs)[0]);
+                        html << "Model loaded";
+                    }
                 } else {
-                    CreateMatcher(std::get<2>(vargs)[0]);
-                    html << "Model loaded";
+                    html << "no such method";
                 }
-            } else {
-                html << "no such method";
-            }
-            html << load_form;
-            return MakePage(html.Get());
-        });
+                html << load_form;
+                return MakePage(html.Get());
+            });
 
     RegisterUrl("/rules",
-            [](const std::string& method, const POSTValues& args) {
+            [&rules_matcher](const std::string& method, const POSTValues& args) {
                 using namespace httpi::html;
                 Html html;
 
@@ -199,12 +200,12 @@ int main(int argc, char** argv) {
                         html << std::get<1>(vargs).Get();
                     } else {
                         auto& vs = std::get<2>(vargs);
-                        g_rm.AddRule(vs[0] + " : " + vs[1]);
+                        rules_matcher.AddRule(vs[0] + " : " + vs[1]);
                     }
                 } else {
                     html << "no such method";
                 }
-                html << DisplayRules().Get() << add_form;
+                html << DisplayRules(rules_matcher) << add_form;
                 return MakePage(html.Get());
             });
 

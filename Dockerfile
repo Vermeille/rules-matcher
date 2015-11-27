@@ -37,7 +37,7 @@ RUN apt-get install -y gdb valgrind
 
 RUN git clone https://github.com/Vermeille/http-interface && \
     cd http-interface && \
-    git checkout d522546b && \
+    git checkout fcde45e053315 && \
     mkdir build && \
     cd build && \
     cmake .. && \
@@ -48,6 +48,7 @@ RUN git clone https://github.com/Vermeille/http-interface && \
 
 RUN git clone https://github.com/Vermeille/nlp-common && \
     cd nlp-common && \
+    git checkout b46ed1b && \
     mkdir build && \
     cd build && \
     cmake .. && \

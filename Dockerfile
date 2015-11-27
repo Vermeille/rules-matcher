@@ -48,7 +48,7 @@ RUN git clone https://github.com/Vermeille/http-interface && \
 
 RUN git clone https://github.com/Vermeille/nlp-common && \
     cd nlp-common && \
-    git checkout b46ed1b && \
+    git checkout 0a14978 && \
     mkdir build && \
     cd build && \
     cmake .. && \

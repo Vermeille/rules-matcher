@@ -8,8 +8,11 @@
 #include <fstream>
 
 #include <nlp-common/rules-matcher.h>
+#include <nlp-common/tokenizer.h>
 
+#include <httpi/rest-helpers.h>
 #include <httpi/html/html.h>
+#include <httpi/html/json.h>
 #include <httpi/webjob.h>
 #include <httpi/displayer.h>
 #include <httpi/html/form-gen.h>
@@ -20,69 +23,13 @@ static const unsigned int kNotFound = -1;
 
 namespace htmli = httpi::html;
 
-static const htmli::FormDescriptor match_form_desc = {
-    "Match",  // name
-    "Match the input against the rules",  // longer description
-    { { "input", "text", "Text to match" } }
-};
-
-static const std::string match_form = match_form_desc
-        .MakeForm("/match", "GET").Get();
-
-htmli::Html SeeMatches(RulesMatcher& rm, const std::string& text) {
-    using namespace htmli;
-
-    std::istringstream input(text);
-    std::string w;
-    TrainingExample ex;
-    // FIXME: use tokenizer
-    input >> w;
-    while (input) {
-        ex.inputs.push_back({w});
-        input >> w;
-    }
-    auto matches = rm.Match(ex);
-
-    Html html;
-    if (matches.size() == 0) {
-        html << P() << "no match" << Close();
-    } else {
-        html << Ul();
-        for (auto& r : matches) {
-            html << Li() << r << Close();
-        }
-        html << Close();
-    }
-
-    return html;
-}
-
-static const htmli::FormDescriptor load_form_desc = {
-    "Load",
-    "Load rules",
-    { { "rules", "file", "A file containing rules" } }
-};
-
-static const std::string load_form = load_form_desc
-        .MakeForm("/model", "PUT").Get();
-
 RulesMatcher CreateMatcher(const std::string& matcher) {
     return RulesMatcher::FromSerialized(matcher);
 }
 
-static const htmli::FormDescriptor add_form_desc = {
-    "Add",
-    "Add rules",
-    { { "label", "text", "The label" },
-      { "pattern", "text", "The pattern" } }
-};
-
-static const std::string add_form = add_form_desc
-        .MakeForm("/rules", "POST").Get();
-
 htmli::Html Save(RulesMatcher& rm) {
     using namespace htmli;
-    return Html() << A().Id("dl").Attr("download", "bow_model.bin") << "Download Model" << Close() <<
+    return Html() << A().Id("dl").Attr("download", "rules_model.bin") << "Download Model" << Close() <<
         Tag("textarea").Id("content").Attr("style", "display: none") << rm.Serialize() << Close() <<
         Tag("script") <<
             "window.onload = function() {"
@@ -134,6 +81,7 @@ std::string MakePage(const std::string& content) {
                     "<div class=\"col-md-9\">" <<
                         content <<
                     "</div>"
+                    "<h2>Resources</h2>"
                     "<div class=\"col-md-3\">" <<
                         Ul() <<
                             Li() <<
@@ -164,61 +112,96 @@ int main(int argc, char** argv) {
             return MakePage(*monitoring_job->job_data().page());
         });
 
-    RegisterUrl("/match",
-            [&rules_matcher](const std::string& method, const POSTValues& args) {
+    RegisterUrl("/match", httpi::RestPageMaker(MakePage)
+        .AddResource("GET", httpi::RestResource(
+            htmli::FormDescriptor<std::string> {
+                "GET", "/match",
+                "Match",
+                "Match the input against the rules",
+                { { "input", "text", "Text to match" } }
+            },
+            [&rules_matcher](const std::string& input) {
+                TrainingExample ex;
+                ex.inputs = Tokenizer::FR(input);
+                return rules_matcher.Match(ex);
+            },
+            [](const std::vector<std::string>& matches) {
                 using namespace httpi::html;
                 Html html;
-
-                auto vargs = match_form_desc.ValidateParams(args);
-                if (std::get<0>(vargs)) {
-                    html << P().AddClass("alert") << "No input" << Close();
+                if (matches.size() == 0) {
+                    html << P() << "no match" << Close();
                 } else {
-                    html << SeeMatches(rules_matcher, std::get<2>(vargs)[0]);
-                }
-                html << match_form;
-                return MakePage(html.Get());
-            });
-
-    RegisterUrl("/model",
-            [&rules_matcher](const std::string& method, const POSTValues& args) {
-                using namespace httpi::html;
-                Html html;
-                if (method == "GET") {
-                    html << Save(rules_matcher);
-                } else if (method == "PUT") {
-                    auto vargs = load_form_desc.ValidateParams(args);
-                    if (std::get<0>(vargs)) {
-                        html << (std::get<1>(vargs).Get());
-                    } else {
-                        rules_matcher = CreateMatcher(std::get<2>(vargs)[0]);
-                        html << "Model loaded";
+                    html << Ul();
+                    for (auto& r : matches) {
+                        html << Li() << r << Close();
                     }
-                } else {
-                    html << "no such method";
+                    html << Close();
                 }
-                html << load_form;
-                return MakePage(html.Get());
-            });
 
-    RegisterUrl("/rules",
-            [&rules_matcher](const std::string& method, const POSTValues& args) {
-                using namespace httpi::html;
-                Html html;
+                return html;
+            },
+            [](const std::vector<std::string>& matches) {
+                return JsonBuilder().Append("matches", matches).Build();
+            })));
 
-                if (method == "POST") {
-                    auto vargs = add_form_desc.ValidateParams(args);
-                    if (std::get<0>(vargs)) {
-                        html << std::get<1>(vargs).Get();
-                    } else {
-                        auto& vs = std::get<2>(vargs);
-                        rules_matcher.AddRule(vs[0] + " : " + vs[1]);
-                    }
-                } else {
-                    html << "no such method";
-                }
-                html << DisplayRules(rules_matcher) << add_form;
-                return MakePage(html.Get());
-            });
+    RegisterUrl("/model", httpi::RestPageMaker(MakePage)
+        .AddResource("GET", httpi::RestResource(
+            htmli::FormDescriptor<> {},
+            []() {
+                return 0;
+            },
+            [&rules_matcher](int) {
+                return Save(rules_matcher);
+            },
+            [](int) {
+                return JsonBuilder().Append("result", 1).Build();
+            }))
+        .AddResource("PUT", httpi::RestResource(
+            htmli::FormDescriptor<std::string> {
+                "PUT", "/model",
+                "Load",
+                "Load rules",
+                { { "rules", "file", "A file containing rules" } }
+            },
+            [&rules_matcher](const std::string& model) {
+                rules_matcher = CreateMatcher(model);
+                return 0;
+            },
+            [](int) {
+                return htmli::Html() << "model loaded";
+            },
+            [](int) {
+                return JsonBuilder().Append("result", 0).Build();
+            })));
+
+    RegisterUrl("/rules", httpi::RestPageMaker(MakePage)
+        .AddResource("POST", httpi::RestResource(
+            htmli::FormDescriptor<std::string, std::string> {
+                "POST", "/rules",
+                "Add",
+                "Add rules",
+                { { "label", "text", "The label" },
+                  { "pattern", "text", "The pattern" } }
+            },
+            [&rules_matcher](const std::string& label, const std::string& pattern) {
+                rules_matcher.AddRule(label + " : " + pattern);
+                return 0;
+            },
+            [](int) {
+                return htmli::Html() << "Rule added";
+            },
+            [](int) {
+                return JsonBuilder().Append("result", 0).Build();
+            }))
+        .AddResource("GET", httpi::RestResource(
+            htmli::FormDescriptor<>{},
+            [](){ return 0; },
+            [&rules_matcher](int) {
+                return DisplayRules(rules_matcher);
+            },
+            [](int) {
+                return JsonBuilder().Append("result", 1).Build();
+            })));
 
     ServiceLoopForever();  // infinite loop ending only on SIGINT / SIGTERM / SIGKILL
     StopHttpInterface();  // clear resources

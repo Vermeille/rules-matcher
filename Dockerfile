@@ -1,4 +1,4 @@
-FROM ubuntu:14.04
+FROM ubuntu:15.10
 
 ENV CC gcc
 ENV CXX  g++
@@ -22,6 +22,9 @@ RUN apt-get update &&  apt-get install -y \
          make \
          pkg-config
 
+RUN ln -s /usr/bin/aclocal-1.15 /usr/bin/aclocal-1.14
+RUN ln -s /usr/bin/automake-1.15 /usr/bin/automake-1.14
+
 # Http Interface runs on GNU libmicrohttpd
 RUN git clone https://github.com/Metaswitch/libmicrohttpd --depth=1 && \
     cd libmicrohttpd && \
@@ -34,7 +37,7 @@ RUN apt-get install -y gdb valgrind
 
 RUN git clone https://github.com/Vermeille/http-interface && \
     cd http-interface && \
-    git checkout 8894e1a7b96d19fe && \
+    git checkout 91920a384 && \
     mkdir build && \
     cd build && \
     cmake .. && \
@@ -53,10 +56,13 @@ RUN git clone https://github.com/Vermeille/nlp-common && \
     cd ../.. && \
     rm -rf nlp-common && echo i
 
+# Mandatory: generate the locales of the languages the library uses.
+RUN locale-gen fr_FR.UTF-8
+
 EXPOSE 8888
 
 ADD . /root
 
 RUN mkdir build && cd build && cmake .. && make
 
-#ENTRYPOINT ["valgrind", "./build/nlp-common"]
+ENTRYPOINT ["valgrind", "./build/rule-matcher"]
